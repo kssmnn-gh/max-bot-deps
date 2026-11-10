@@ -1,0 +1,51 @@
+name: Build dependency image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set image name
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          python3 - <<'PY'
+          import os
+          image = 'ghcr.io/' + os.environ['OWNER'].lower() + '/max-bot-deps:deps-dc00a9cbb677e2ed'
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('IMAGE=' + image + '\n')
+          PY
+      - name: Build Linux image
+        run: docker build --pull --platform linux/amd64 -f deploy/base.Dockerfile -t "$IMAGE" .
+      - name: Check OCR, documents, browser and libraries
+        run: docker run --rm -i "$IMAGE" python < smoke_base.py
+      - name: Sign in to package registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested image
+        run: docker push "$IMAGE"
+      - name: Record immutable image reference
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          image = os.environ['IMAGE']
+          info = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image]))[0]
+          digest = info['RepoDigests'][0].split('@', 1)[1]
+          pinned = image + '@' + digest
+          print(pinned)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('Tested dependency image:\n\n`' + pinned + '`\n\n')
+              f.write('Set the max-bot-deps package visibility to Public before Amvera pulls it.\n')
+          PY
