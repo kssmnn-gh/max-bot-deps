@@ -1,0 +1,6 @@
+*
+!requirements.txt
+!constraints-v12-py311.txt
+!deploy/
+deploy/*
+!deploy/base.Dockerfile
